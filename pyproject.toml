@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "eml-extract-model"
+version = "0.1.0"
+description = "Email and attachment classifier using rule-based and GPT-based models"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "langchain-openai>=1.2.1",
+    "openai>=2.37.0",
+    "pydantic>=2.13.4",
+    "pytest-cov>=7.1.0",
+    "python-dotenv>=1.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["eml_extract_model"]
