@@ -1,4 +1,5 @@
 import logging
+import time
 
 import openai
 from langchain_core.prompts import ChatPromptTemplate
@@ -39,23 +40,38 @@ class AttachmentChain:
     async def run(self, text: str) -> ClassificationResult:
         logger.info('attachment_chain invoke: model=%s invoke_key=%s', self._model, self._invoke_key)
         try:
+            t0 = time.perf_counter()
             result = GPTClassificationResponse.model_validate(
                 await self._chain.ainvoke({self._invoke_key: text})
             )
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
         except openai.AuthenticationError as exc:
+            logger.error('attachment_chain: authentication error', exc_info=True)
             raise LLMAuthError() from exc
         except openai.RateLimitError as exc:
+            logger.error('attachment_chain: rate limit exceeded', exc_info=True)
             raise LLMRateLimitError() from exc
         except openai.APITimeoutError as exc:
+            logger.error('attachment_chain: request timed out', exc_info=True)
             raise LLMTimeoutError() from exc
         except openai.APIConnectionError as exc:
+            logger.error('attachment_chain: connection error', exc_info=True)
             raise LLMConnectionError() from exc
         except openai.APIError as exc:
+            logger.error('attachment_chain: api error', exc_info=True)
             raise LLMError() from exc
 
         if result.label not in _VALID_LABELS:
             raise UnrecognisedLabelError(
                 f'LLM returned {result.label!r}; valid labels: {", ".join(sorted(_VALID_LABELS))}'
             )
-        logger.info('attachment_chain result: label=%r confidence=%.2f', result.label, result.confidence)
+        logger.info(
+            'attachment_chain result: label=%r confidence=%.2f elapsed_ms=%d',
+            result.label, result.confidence, elapsed_ms,
+        )
+        if result.confidence < settings.LOW_CONFIDENCE_THRESHOLD:
+            logger.warning(
+                'attachment_chain: low confidence result label=%r confidence=%.2f',
+                result.label, result.confidence,
+            )
         return ClassificationResult(label=result.label, confidence=result.confidence)

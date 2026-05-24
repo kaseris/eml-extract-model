@@ -17,5 +17,5 @@ class GPTBasedClassifier:
     async def __call__(self, text: str) -> ClassificationResult:
         if not text or not text.strip():
             raise EmptyInputError()
-        logger.info('GPTBasedClassifier called')
+        logger.info('GPTBasedClassifier called: %d chars', len(text))
         return await self._chain.run(text)

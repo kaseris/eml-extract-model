@@ -17,5 +17,5 @@ class GPTBasedAttachmentClassifier:
     async def __call__(self, content: str) -> ClassificationResult:
         if not content or not content.strip():
             raise EmptyInputError()
-        logger.info('GPTBasedAttachmentClassifier called')
+        logger.info('GPTBasedAttachmentClassifier called: %d chars', len(content))
         return await self._chain.run(content)

@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Type
 
 import openai
@@ -47,19 +48,29 @@ class ExtractionChain:
             self._output_schema.__name__,
         )
         try:
+            t0 = time.perf_counter()
             result = self._output_schema.model_validate(
                 await self._chain.ainvoke({self._invoke_key: text})
             )
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
         except openai.AuthenticationError as exc:
+            logger.error('extraction_chain: authentication error', exc_info=True)
             raise LLMAuthError() from exc
         except openai.RateLimitError as exc:
+            logger.error('extraction_chain: rate limit exceeded', exc_info=True)
             raise LLMRateLimitError() from exc
         except openai.APITimeoutError as exc:
+            logger.error('extraction_chain: request timed out', exc_info=True)
             raise LLMTimeoutError() from exc
         except openai.APIConnectionError as exc:
+            logger.error('extraction_chain: connection error', exc_info=True)
             raise LLMConnectionError() from exc
         except openai.APIError as exc:
+            logger.error('extraction_chain: api error', exc_info=True)
             raise LLMError() from exc
 
-        logger.info('extraction_chain result: schema=%s', self._output_schema.__name__)
+        logger.info(
+            'extraction_chain result: schema=%s elapsed_ms=%d',
+            self._output_schema.__name__, elapsed_ms,
+        )
         return result

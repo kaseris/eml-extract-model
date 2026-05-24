@@ -13,6 +13,7 @@ load_dotenv()
 class Settings:
     MATCH_CONFIDENCE: float = 1.00
     NO_MATCH_CONFIDENCE: float = 0.0
+    LOW_CONFIDENCE_THRESHOLD: float = 0.5
     CHEAP_MODEL: str = 'gpt-4o-mini'
     CAPABLE_MODEL: str = 'gpt-4o'
     SUPPORTED_PDF_EXTENSIONS: frozenset = frozenset({'.pdf'})

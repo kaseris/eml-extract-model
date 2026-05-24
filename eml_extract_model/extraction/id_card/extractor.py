@@ -25,8 +25,15 @@ class IDCardExtractor:
         logger.info('IDCardExtractor called')
         result = await self._chain.run(content)
         logger.info(
-            'IDCardExtractor result: first_name=%r last_name=%r',
-            result.first_name.value,
-            result.last_name.value,
+            'IDCardExtractor result: '
+            'first_name=%r(%.2f) last_name=%r(%.2f) '
+            'date_of_birth=%r(%.2f) expiration_date=%r(%.2f) '
+            'sex=%r(%.2f) height=%r(%.2f)',
+            result.first_name.value, result.first_name.confidence,
+            result.last_name.value, result.last_name.confidence,
+            result.date_of_birth.value, result.date_of_birth.confidence,
+            result.expiration_date.value, result.expiration_date.confidence,
+            result.sex.value, result.sex.confidence,
+            result.height.value, result.height.confidence,
         )
         return result
