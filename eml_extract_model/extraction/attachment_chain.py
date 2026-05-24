@@ -14,6 +14,7 @@ from ..errors import (
     LLMTimeoutError,
     UnrecognisedLabelError,
 )
+from ..retry import make_retry_on_rate_limit
 from ..schemas.categories import AttachmentCategories, EMailCategories
 from ..schemas.definitions import ClassificationResult, GPTClassificationResponse
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Union of email and attachment-specific labels — all valid outcomes for an attachment.
 _VALID_LABELS = {e.value for e in EMailCategories} | {e.value for e in AttachmentCategories}
+_retry = make_retry_on_rate_limit('attachment_chain', logger)
 
 
 class AttachmentChain:
@@ -37,6 +39,7 @@ class AttachmentChain:
         self._invoke_key = invoke_key
         self._model = model
 
+    @_retry
     async def run(self, text: str) -> ClassificationResult:
         logger.info('attachment_chain invoke: model=%s invoke_key=%s', self._model, self._invoke_key)
         try:

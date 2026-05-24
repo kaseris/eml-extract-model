@@ -14,12 +14,14 @@ from ..errors import (
     LLMError,
     UnrecognisedLabelError,
 )
+from ..retry import make_retry_on_rate_limit
 from ..schemas.categories import EMailCategories
 from ..schemas.definitions import ClassificationResult, GPTClassificationResponse
 
 logger = logging.getLogger(__name__)
 
 _VALID_LABELS = {e.value for e in EMailCategories}
+_retry = make_retry_on_rate_limit('gpt_chain', logger)
 
 
 class GPTChain:
@@ -29,6 +31,7 @@ class GPTChain:
         self._invoke_key = invoke_key
         self._model = model
 
+    @_retry
     async def run(self, text: str) -> ClassificationResult:
         logger.info('gpt_chain invoke: model=%s invoke_key=%s', self._model, self._invoke_key)
         try:

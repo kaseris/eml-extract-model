@@ -15,8 +15,10 @@ from ..errors import (
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from ..retry import make_retry_on_rate_limit
 
 logger = logging.getLogger(__name__)
+_retry = make_retry_on_rate_limit('extraction_chain', logger)
 
 
 class ExtractionChain:
@@ -40,6 +42,7 @@ class ExtractionChain:
         self._model = model
         self._output_schema = output_schema
 
+    @_retry
     async def run(self, text: str) -> BaseModel:
         logger.info(
             'extraction_chain invoke: model=%s invoke_key=%s schema=%s',
