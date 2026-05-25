@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class ClassificationResult(BaseModel):
@@ -23,16 +23,37 @@ class OCRPage(BaseModel):
     angle: float = 0.0
     width: float = 0.0
     height: float = 0.0
+    spans: List[OCRSpan] = Field(default_factory=list)
+    content: str = ""
 
 
 class OCRResponse(BaseModel):
     content: str = ""
     pages: List[OCRPage] = Field(default_factory=list)
 
+    @model_validator(mode='after')
+    def _populate_page_content(self) -> 'OCRResponse':
+        """Derive per-page text from span offsets into the top-level content string.
+
+        Only runs when spans are present; pages with no spans keep whatever
+        content value was set at construction time (typically the default "").
+        """
+        for page in self.pages:
+            if not page.spans:
+                continue
+            parts = [
+                self.content[s.offset : s.offset + s.length]
+                for s in page.spans
+                if s.offset + s.length <= len(self.content)
+            ]
+            page.content = "\n".join(parts)
+        return self
+
 
 class PyMuPDFPage(BaseModel):
     page_number: int
     text: str = ""
+    is_scanned: bool = False
 
     @property
     def char_count(self) -> int:
@@ -42,13 +63,18 @@ class PyMuPDFPage(BaseModel):
 class PyMuPDFResponse(BaseModel):
     pages: List[PyMuPDFPage] = Field(default_factory=list)
     page_count: int = 0
-    is_scanned: bool = False
 
     @computed_field
     @property
     def content(self) -> str:
         """Unified text content concatenated from all pages."""
         return "\n".join(p.text for p in self.pages)
+
+    @computed_field
+    @property
+    def has_scanned_pages(self) -> bool:
+        """True if at least one page was flagged as image-dominant by PyMuPDF."""
+        return any(p.is_scanned for p in self.pages)
 
 
 class PDFReadResult(BaseModel):

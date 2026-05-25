@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 class PDFReader:
     """Orchestrates attachment text extraction by routing on file extension.
 
-    PDFs: runs PyMuPDF first (sync, no I/O); falls back to OCR if the document
-    is detected as scanned (mostly image pages with little extractable text).
+    PDFs: runs PyMuPDF first (sync, no I/O).  Each page is evaluated
+    independently using the image-area heuristic in PyMuPDFReader.  If all
+    pages are clean text, PyMuPDF output is returned as-is (no OCR call).  If
+    any page is detected as image-dominant, the full document is sent to OCR
+    once; the final text is then stitched page-by-page — OCR text for scanned
+    pages, PyMuPDF text for normal pages.
 
     Images: skips PyMuPDF entirely and goes straight to OCR.
 
@@ -67,7 +71,7 @@ class PDFReader:
     async def _read_pdf(self, bytes_source: bytes) -> PDFReadResult:
         pymupdf_result = self._pymupdf_reader(bytes_source)
 
-        if not pymupdf_result.is_scanned:
+        if not pymupdf_result.has_scanned_pages:
             logger.info('PDFReader result: text extraction succeeded (no OCR needed)')
             return PDFReadResult(
                 text=pymupdf_result.content,
@@ -75,11 +79,23 @@ class PDFReader:
                 pymupdf_result=pymupdf_result,
             )
 
-        logger.info('PDFReader: scanned PDF detected, falling back to OCR')
+        scanned = sum(1 for p in pymupdf_result.pages if p.is_scanned)
+        logger.info(
+            'PDFReader: %d/%d pages are scanned — running OCR then stitching',
+            scanned,
+            pymupdf_result.page_count,
+        )
         ocr_result = await self._get_ocr()(bytes_source)
-        logger.info('PDFReader result: scanned PDF OCR succeeded')
+
+        ocr_by_page = {p.pageNumber: p.content for p in ocr_result.pages}
+        stitched = [
+            ocr_by_page.get(page.page_number, '') if page.is_scanned else page.text
+            for page in pymupdf_result.pages
+        ]
+
+        logger.info('PDFReader result: hybrid stitch succeeded (used_ocr=True)')
         return PDFReadResult(
-            text=ocr_result.content,
+            text='\n'.join(stitched),
             used_ocr=True,
             pymupdf_result=pymupdf_result,
             ocr_result=ocr_result,
