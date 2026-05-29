@@ -1,4 +1,5 @@
 import io
+import os
 
 import fitz
 from PIL import Image
@@ -11,7 +12,7 @@ from eml_extract_model.extraction.pdf.synthesis import (
 )
 from eml_extract_model.schemas.definitions import PageImage
 
-_MAX_DIMENSION_PX = settings.OCR_MAX_IMAGE_DIMENSION_PX
+_TEST_MAX_DIMENSION_PX = 200
 
 
 def _png_bytes(width: int = 20, height: int = 10) -> bytes:
@@ -23,11 +24,10 @@ def _png_bytes(width: int = 20, height: int = 10) -> bytes:
 
 def _bloated_png(width: int, height: int) -> bytes:
     """Build a PNG whose uncompressed payload exceeds the OCR file-size limit."""
-    img = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, width, height))
-    for y in range(height):
-        for x in range(width):
-            img.set_pixel(x, y, (x % 256, y % 256, (x + y) % 256))
-    return img.tobytes('png')
+    img = Image.frombytes('RGB', (width, height), os.urandom(width * height * 3))
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
 
 
 class TestPrepareImageForOcr:
@@ -68,29 +68,33 @@ class TestPrepareImageForOcr:
         assert prepared.image_bytes[:2] == b'\xff\xd8'
         assert prepared.output_bytes <= limit
 
-    def test_oversized_dimensions_are_downscaled_to_jpeg(self):
-        oversized = _png_bytes(_MAX_DIMENSION_PX + 500, 100)
+    def test_oversized_dimensions_are_downscaled_to_jpeg(self, monkeypatch):
+        monkeypatch.setattr(settings, 'OCR_MAX_IMAGE_DIMENSION_PX', _TEST_MAX_DIMENSION_PX)
+        oversized = _png_bytes(_TEST_MAX_DIMENSION_PX + 100, 50)
         prepared = prepare_image_for_ocr(oversized, 'png')
         assert prepared.ext == 'jpeg'
         assert prepared.action == 'jpeg_downscale'
-        assert prepared.output_width <= _MAX_DIMENSION_PX
-        assert prepared.output_height <= _MAX_DIMENSION_PX
+        assert prepared.output_width <= _TEST_MAX_DIMENSION_PX
+        assert prepared.output_height <= _TEST_MAX_DIMENSION_PX
 
-    def test_aspect_ratio_preserved_when_downscaling(self):
-        oversized = _png_bytes(_MAX_DIMENSION_PX + 1000, (_MAX_DIMENSION_PX + 1000) // 2)
+    def test_aspect_ratio_preserved_when_downscaling(self, monkeypatch):
+        monkeypatch.setattr(settings, 'OCR_MAX_IMAGE_DIMENSION_PX', _TEST_MAX_DIMENSION_PX)
+        width = _TEST_MAX_DIMENSION_PX + 200
+        oversized = _png_bytes(width, width // 2)
         prepared = prepare_image_for_ocr(oversized, 'png')
         assert prepared.ext == 'jpeg'
         ratio = prepared.output_width / prepared.output_height
         assert abs(ratio - 2.0) < 0.1
 
-    def test_assembled_pdf_pages_within_dimension_limit(self):
-        big = _png_bytes(_MAX_DIMENSION_PX + 200, _MAX_DIMENSION_PX + 200)
+    def test_assembled_pdf_pages_within_dimension_limit(self, monkeypatch):
+        monkeypatch.setattr(settings, 'OCR_MAX_IMAGE_DIMENSION_PX', _TEST_MAX_DIMENSION_PX)
+        big = _png_bytes(_TEST_MAX_DIMENSION_PX + 100, _TEST_MAX_DIMENSION_PX + 100)
         images = [PageImage(image_bytes=big, ext='png')]
         pdf_bytes = assemble_image_pdf(images)
         with fitz.open(stream=pdf_bytes, filetype='pdf') as doc:
             page = doc[0]
-            assert page.rect.width <= _MAX_DIMENSION_PX
-            assert page.rect.height <= _MAX_DIMENSION_PX
+            assert page.rect.width <= _TEST_MAX_DIMENSION_PX
+            assert page.rect.height <= _TEST_MAX_DIMENSION_PX
 
 
 class TestAssembleImagePDF:
