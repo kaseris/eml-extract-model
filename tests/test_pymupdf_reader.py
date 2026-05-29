@@ -16,11 +16,29 @@ def _make_page(
     images: list[tuple[float, float, float, float]] | None = None,
     width: float = 100.0,
     height: float = 100.0,
+    blocks: list[tuple] | None = None,
+    image_xrefs: list[int] | None = None,
 ) -> MagicMock:
-    """Return a mock fitz.Page with controlled text, images, and dimensions."""
+    """Return a mock fitz.Page with controlled text, images, and dimensions.
+
+    ``blocks`` are raw ``get_text('blocks')`` tuples; ``image_xrefs`` assigns an
+    xref to each image so extraction can be exercised (0 / omitted => no xref).
+    """
     page = MagicMock()
-    page.get_text.return_value = text
-    page.get_image_info.return_value = [{'bbox': img} for img in (images or [])]
+
+    def _get_text(kind: str = 'text'):
+        if kind == 'blocks':
+            return blocks or []
+        return text
+
+    page.get_text.side_effect = _get_text
+
+    xrefs = image_xrefs or [0] * len(images or [])
+    info = [
+        {'bbox': img, 'xref': xref}
+        for img, xref in zip(images or [], xrefs)
+    ]
+    page.get_image_info.return_value = info
     page.rect.width = width
     page.rect.height = height
     return page
@@ -33,6 +51,7 @@ def _make_doc(*pages: MagicMock) -> MagicMock:
     doc.__enter__ = MagicMock(return_value=doc)
     doc.__exit__ = MagicMock(return_value=False)
     doc.page_count = len(pages)
+    doc.extract_image.return_value = {'image': b'imgbytes', 'ext': 'png'}
     return doc
 
 
@@ -95,6 +114,68 @@ class TestPageScanDetection:
         with patch('fitz.open', return_value=doc):
             result = PyMuPDFReader()(b'fake')
         assert result.pages[0].is_scanned is False
+
+
+# ---------------------------------------------------------------------------
+# Positioned text blocks
+# ---------------------------------------------------------------------------
+
+class TestTextBlockExtraction:
+    def test_blocks_are_extracted_with_bbox_and_text(self):
+        blocks = [
+            (0.0, 10.0, 50.0, 20.0, 'Hello', 0, 0),
+            (0.0, 30.0, 50.0, 40.0, 'World', 1, 0),
+        ]
+        page = _make_page(text='Hello\nWorld', blocks=blocks)
+        doc = _make_doc(page)
+        with patch('fitz.open', return_value=doc):
+            result = PyMuPDFReader()(b'fake')
+        page0 = result.pages[0]
+        assert [b.text for b in page0.blocks] == ['Hello', 'World']
+        assert page0.blocks[0].bbox == (0.0, 10.0, 50.0, 20.0)
+
+    def test_image_blocks_are_excluded(self):
+        # block_type == 1 marks an image block; only text blocks are kept.
+        blocks = [
+            (0.0, 10.0, 50.0, 20.0, 'Text', 0, 0),
+            (0.0, 30.0, 50.0, 40.0, '', 1, 1),
+        ]
+        page = _make_page(text='Text', blocks=blocks)
+        doc = _make_doc(page)
+        with patch('fitz.open', return_value=doc):
+            result = PyMuPDFReader()(b'fake')
+        assert [b.text for b in result.pages[0].blocks] == ['Text']
+
+
+# ---------------------------------------------------------------------------
+# Embedded image extraction
+# ---------------------------------------------------------------------------
+
+class TestImageExtraction:
+    def test_image_with_xref_is_extracted(self):
+        page = _make_page(images=[(0, 0, 100, 100)], image_xrefs=[7])
+        doc = _make_doc(page)
+        with patch('fitz.open', return_value=doc):
+            result = PyMuPDFReader()(b'fake')
+        imgs = result.pages[0].images
+        assert len(imgs) == 1
+        assert imgs[0].image_bytes == b'imgbytes'
+        assert imgs[0].ext == 'png'
+        assert imgs[0].bbox == (0, 0, 100, 100)
+
+    def test_image_without_xref_is_skipped(self):
+        page = _make_page(images=[(0, 0, 100, 100)], image_xrefs=[0])
+        doc = _make_doc(page)
+        with patch('fitz.open', return_value=doc):
+            result = PyMuPDFReader()(b'fake')
+        assert result.pages[0].images == []
+
+    def test_text_page_has_no_images(self):
+        page = _make_page(text='just text', images=[])
+        doc = _make_doc(page)
+        with patch('fitz.open', return_value=doc):
+            result = PyMuPDFReader()(b'fake')
+        assert result.pages[0].images == []
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ from typing import List
 import fitz
 
 from ....errors import PDFParsingError
-from ....schemas.definitions import PyMuPDFPage, PyMuPDFResponse
+from ....schemas.definitions import PageImage, PyMuPDFPage, PyMuPDFResponse, TextBlock
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,8 @@ class PyMuPDFReader:
             with fitz.open(stream=bytes_source, filetype='pdf') as doc:
                 pages = []
                 for i, page in enumerate(doc):
-                    ratio = self._image_area_ratio(page)
+                    image_info = page.get_image_info(xrefs=True)
+                    ratio = self._image_area_ratio(page, image_info)
                     is_scanned = ratio >= self._image_area_threshold
                     logger.debug(
                         'PyMuPDFReader page %d: image_ratio=%.3f threshold=%.2f is_scanned=%s',
@@ -41,6 +42,8 @@ class PyMuPDFReader:
                         page_number=i + 1,
                         text=page.get_text('text') or '',
                         is_scanned=is_scanned,
+                        blocks=self._extract_blocks(page),
+                        images=self._extract_images(doc, image_info),
                     ))
                 page_count = doc.page_count
         except PDFParsingError:
@@ -59,17 +62,40 @@ class PyMuPDFReader:
         )
         return PyMuPDFResponse(pages=pages, page_count=page_count)
 
-    def _image_area_ratio(self, page: fitz.Page) -> float:
+    def _image_area_ratio(self, page: fitz.Page, image_info: list) -> float:
         """Return the fraction of the page area covered by raster images, capped at 1.0."""
         page_area = page.rect.width * page.rect.height
         if page_area == 0:
             return 0.0
         image_area = sum(
-            (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-            for img in page.get_image_info()
-            for bbox in [img['bbox']]
+            (img['bbox'][2] - img['bbox'][0]) * (img['bbox'][3] - img['bbox'][1])
+            for img in image_info
         )
         return min(image_area / page_area, 1.0)
 
-    def _page_is_scanned(self, page: fitz.Page) -> bool:
-        return self._image_area_ratio(page) >= self._image_area_threshold
+    def _extract_blocks(self, page: fitz.Page) -> List[TextBlock]:
+        """Return positioned, non-empty text blocks for reading-order merges."""
+        blocks = []
+        for block in page.get_text('blocks'):
+            x0, y0, x1, y1, text, _block_no, block_type = block
+            if block_type != 0:  # 0 == text block; 1 == image block
+                continue
+            stripped = text.strip()
+            if stripped:
+                blocks.append(TextBlock(bbox=(x0, y0, x1, y1), text=stripped))
+        return blocks
+
+    def _extract_images(self, doc: fitz.Document, image_info: list) -> List[PageImage]:
+        """Extract embedded raster images (bbox + raw bytes) for downstream OCR."""
+        images = []
+        for img in image_info:
+            xref = img.get('xref', 0)
+            if not xref:
+                continue
+            extracted = doc.extract_image(xref)
+            images.append(PageImage(
+                bbox=img['bbox'],
+                image_bytes=extracted['image'],
+                ext=extracted['ext'],
+            ))
+        return images
