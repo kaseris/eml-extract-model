@@ -168,6 +168,14 @@ class OCRConnectionError(OCRError):
     http_status_hint = 502
 
 
+class OCRImageTooLargeError(OCRError):
+    """Azure Document Intelligence rejected the image because it exceeds the size limit."""
+
+    code = "ocr_image_too_large"
+    description = "OCR input image exceeds the provider's maximum allowed size."
+    http_status_hint = 413
+
+
 class OCRUnsupportedFormatError(PDFExtractionError):
     """Document format is not supported by the OCR provider."""
 
