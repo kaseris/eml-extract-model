@@ -1,6 +1,9 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field, computed_field, model_validator
+
+# Axis-aligned bounding box on a PDF page: (x0, y0, x1, y1) in page units.
+BBox = Tuple[float, float, float, float]
 
 
 class ClassificationResult(BaseModel):
@@ -50,10 +53,25 @@ class OCRResponse(BaseModel):
         return self
 
 
+class TextBlock(BaseModel):
+    """A positioned run of text extracted from a page, used for reading-order merges."""
+    bbox: BBox = (0.0, 0.0, 0.0, 0.0)
+    text: str = ""
+
+
+class PageImage(BaseModel):
+    """An embedded raster image on a page: its position plus the raw image bytes."""
+    bbox: BBox = (0.0, 0.0, 0.0, 0.0)
+    image_bytes: bytes = b""
+    ext: str = "png"
+
+
 class PyMuPDFPage(BaseModel):
     page_number: int
     text: str = ""
     is_scanned: bool = False
+    blocks: List[TextBlock] = Field(default_factory=list)
+    images: List[PageImage] = Field(default_factory=list)
 
     @property
     def char_count(self) -> int:
