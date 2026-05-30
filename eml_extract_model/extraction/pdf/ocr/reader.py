@@ -9,7 +9,7 @@ from azure.core.exceptions import (
 )
 
 from ....config import settings
-from ....errors import OCRAuthError, OCRConnectionError, OCRError, OCRUnsupportedFormatError
+from ....errors import OCRAuthError, OCRConnectionError, OCRError, OCRImageTooLargeError, OCRUnsupportedFormatError
 from ....schemas.definitions import OCRResponse
 from .client import get_client
 
@@ -58,6 +58,15 @@ class DocumentIntelligenceOCR:
                 logger.error('doc_intelligence_ocr: unsupported format', exc_info=True)
                 raise OCRUnsupportedFormatError(
                     'Document format is not supported for OCR extraction.'
+                ) from exc
+            inner_code = (
+                (exc.error.innererror or {}).get('code')
+                if exc.error else None
+            )
+            if inner_code == 'InvalidContentLength':
+                logger.error('doc_intelligence_ocr: image too large', exc_info=True)
+                raise OCRImageTooLargeError(
+                    'OCR input exceeds the provider size limit.'
                 ) from exc
             logger.error('doc_intelligence_ocr: http response error', exc_info=True)
             raise OCRError(
